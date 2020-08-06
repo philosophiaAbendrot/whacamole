@@ -18,7 +18,7 @@ class RestartHandler
   end
 
   def dynos
-    %w{web worker}
+    %w{web.1 web.2}
   end
 end
 
@@ -38,8 +38,8 @@ describe Whacamole::Stream do
   end
 
   describe "handle_chunk" do
-    context "when memory usage is present" do
-      it "surfaces the memory usage" do
+    context "when Rack::Timeout error is not present" do
+      it "should not trigger events" do
         stream.dispatch_handlers <<-CHUNK
           ## NEW LOG FORMAT
           2013-08-22T16:39:22.208103+00:00 heroku[router]: at=info method=GET path=/favicon.ico host=aisle50.com fwd="205.159.94.63" dyno=web.3 connect=1ms service=20ms status=200 bytes=894
@@ -57,52 +57,30 @@ describe Whacamole::Stream do
           2013-08-30T14:39:57.133012+00:00 heroku[web.1]: source=heroku.772639.web.1.50578a75-9052-4e14-ac30-ba3686750017 measure=memory_total val=509 units=MB
         CHUNK
 
-        eh.events.length.should == 2
-
-        eh.events.first.should be_a Whacamole::Events::DynoSize
-        eh.events.first.size.should == 581.95
-        eh.events.first.units.should == "MB"
-        eh.events.first.process.should == "web.2"
-
-        eh.events.last.should be_a Whacamole::Events::DynoSize
-        eh.events.last.size.should == 509
-        eh.events.last.units.should == "MB"
-        eh.events.last.process.should == "web.1"
+        expect(eh.events.length).to eq(0)
       end
     end
 
-    it "handles dyno types specified in restart handler" do
-      stream.dispatch_handlers <<-CHUNK
-          2013-08-22T16:39:22.919536+00:00 heroku[web.2]: source=web.2 dyno=heroku.772639.a334caa8-736c-48b3-bac2-d366f75d7fa0 sample#memory_total=101MB sample#memory_rss=581.75MB sample#memory_cache=0.16MB sample#memory_swap=0.03MB sample#memory_pgpgin=0pages sample#memory_pgpgout=179329pages
-          2013-08-22T16:39:22.919536+00:00 heroku[worker.3]: source=worker.3 dyno=heroku.772639.a334caa8-736c-48b3-bac2-d366f75d7fa0 sample#memory_total=101MB sample#memory_rss=581.75MB sample#memory_cache=0.16MB sample#memory_swap=0.03MB sample#memory_pgpgin=0pages sample#memory_pgpgout=179329pages
-          2013-08-22T16:39:22.919536+00:00 heroku[whacamole.1]: source=whacamole.1 dyno=heroku.772639.a334caa8-736c-48b3-bac2-d366f75d7fa0 sample#memory_total=1001MB sample#memory_rss=581.75MB sample#memory_cache=0.16MB sample#memory_swap=0.03MB sample#memory_pgpgin=0pages sample#memory_pgpgout=179329pages
-      CHUNK
+    context "when Rack::Timeout error is present" do
+      it "should kick off a restart" do
+        restart_handler.should_receive(:restart).with("web.1")
 
-      eh.events.length.should == 2
-
-      eh.events.first.process.should == "web.2"
-      eh.events.last.process.should == "worker.3"
-    end
-
-    context "when memory usages is over the threshold" do
-      it "kicks off a restart" do
-        restart_handler.should_receive(:restart).with("web.2")
         stream.dispatch_handlers <<-CHUNK
-          2013-08-22T16:39:22.919536+00:00 heroku[web.2]: source=web.2 dyno=heroku.772639.a334caa8-736c-48b3-bac2-d366f75d7fa0 sample#memory_total=1001MB sample#memory_rss=581.75MB sample#memory_cache=0.16MB sample#memory_swap=0.03MB sample#memory_pgpgin=0pages sample#memory_pgpgout=179329pages
+          191 <190>1 2020-08-06T05:39:40.274419+00:00 app web.1 - - Rack::Timeout::RequestTimeoutException (Request waited 1018ms, then ran for longer than 15000ms )
+          174 <190>1 2020-08-06T05:39:40.274568+00:00 app web.1 - - /app/vendor/bundle/ruby/2.2.0/gems/dalli-2.7.2/lib/dalli/socket.rb:9:in `select'
         CHUNK
       end
 
-      it "surfaces the restart" do
+      it "should create a DynoRestart event." do
         stream.dispatch_handlers <<-CHUNK
-          2013-08-22T16:39:22.919536+00:00 heroku[web.2]: source=web.2 dyno=heroku.772639.a334caa8-736c-48b3-bac2-d366f75d7fa0 sample#memory_total=1001MB sample#memory_rss=581.75MB sample#memory_cache=0.16MB sample#memory_swap=0.03MB sample#memory_pgpgin=0pages sample#memory_pgpgout=179329pages
+          191 <190>1 2020-08-06T05:39:40.274419+00:00 app web.1 - - Rack::Timeout::RequestTimeoutException (Request waited 1018ms, then ran for longer than 15000ms )
+          174 <190>1 2020-08-06T05:39:40.274568+00:00 app web.1 - - /app/vendor/bundle/ruby/2.2.0/gems/dalli-2.7.2/lib/dalli/socket.rb:9:in `select'
         CHUNK
 
-        restart = eh.events.last
-        restart.should be_a Whacamole::Events::DynoRestart
-        restart.process.should == "web.2"
+        restart = eh.events.first
+        expect(restart).to be_a Whacamole::Events::DynoRestart
+        expect(restart.process).to eq "web.1"
       end
     end
   end
 end
-
-

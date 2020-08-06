@@ -25,11 +25,8 @@ module Whacamole
     end
 
     def dispatch_handlers(chunk)
-      memory_size_from_chunk(chunk).each do |dyno, size|
-        event = Events::DynoSize.new({:process => dyno, :size => size, :units => "MB"})
-        event_handler.call(event)
-
-        restart(event.process) if restart_necessary?(event)
+      rack_timeout_from_chunk(chunk).each do |dyno|
+        restart(dyno)
       end
 
       # TODO: handle R14 errors here also
@@ -44,31 +41,18 @@ module Whacamole
       end
     end
 
-    def restart_necessary?(event)
-      event.size > restart_threshold
-    end
+    def rack_timeout_from_chunk(chunk)
+      dynos_regexp = Regexp.new('(' + @dynos.join("|") + ').+')
 
-    def memory_size_from_chunk(chunk)
-      sizes = []
-      dynos_regexp = Regexp.new('(' + @dynos.join('|') + ')\.\d+')
+      dynos = []
 
-      # new log format
-      chunk.split("\n").select{|line| line.include? "sample#memory_total"}.each do |line|
+      chunk.split("\n").select { |line| line.include? "Rack::Timeout" }.each do |line|
         dyno = line.match(dynos_regexp)
         next unless dyno
-        size = line.match(/sample#memory_total=([\d\.]+)/)
-        sizes << [dyno[0], size[1]] unless size.nil?
+        dynos << dyno[1]
       end
 
-      # old log format
-      chunk.split("\n").select{|line| line.include? "measure=memory_total"}.each do |line|
-        dyno = line.match(dynos_regexp)
-        next unless dyno
-        size = line.match(/val=([\d\.]+)/)
-        sizes << [dyno[0], size[1]] unless size.nil?
-      end
-
-      sizes
+      dynos
     end
 
     def url

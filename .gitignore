@@ -1,2 +1,4 @@
 *.swp
 whacamole*.gem
+/vendor/bundle
+/tmp
