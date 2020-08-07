@@ -4,12 +4,11 @@ module Whacamole
 
   class Stream
 
-    def initialize(url, restart_handler, config_restart_threshold, &blk)
+    def initialize(url, restart_handler, &blk)
       @url = url
       @restart_handler = restart_handler
       @dynos = restart_handler.dynos
       @event_handler = blk
-      @restart_threshold = config_restart_threshold
     end
 
     def watch
@@ -65,10 +64,6 @@ module Whacamole
 
     def restart_handler
       @restart_handler
-    end
-
-    def restart_threshold
-      @restart_threshold
     end
   end
 end
